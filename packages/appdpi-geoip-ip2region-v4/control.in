@@ -1,0 +1,14 @@
+Package: appdpi-geoip-ip2region-v4
+Version: @VERSION@
+Depends: appdpi
+Architecture: all
+Section: net
+Priority: optional
+Maintainer: SuLingGG
+Installed-Size: @INSTALLED_SIZE@
+Source: https://github.com/lionsoul2014/ip2region
+License: Apache-2.0
+Description: appdpi 地理库 - ip2region IPv4
+ ip2region 的 IPv4 数据库，装到 /etc/appdpi/geoip/ip2region_v4.xdb。
+ 数据随本仓库的每日构建更新（版本号即数据日期）。
+ 装好后在 appdpi 的「地理库」页启用即可，不需要再下载。

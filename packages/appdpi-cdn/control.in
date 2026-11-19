@@ -1,0 +1,13 @@
+Package: appdpi-cdn
+Version: @VERSION@
+Architecture: all
+Section: net
+Priority: optional
+Maintainer: SuLingGG
+Installed-Size: @INSTALLED_SIZE@
+Source: https://github.com/4ft35t/cdn
+License: GPL-2.0-only
+Description: appdpi CDN 厂商库
+ CDN 厂商域名库，装到 /etc/appdpi/cdn.txt，供 CDN 归属提示使用。
+ 由 nali 的 cdn.yml（4ft35t/cdn）转换而来，格式为 s/r 制表符分隔行。
+ 数据随本仓库的每日构建更新（版本号即数据日期）。

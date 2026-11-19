@@ -1,0 +1,20 @@
+本仓库的脚本与打包定义按 GPL-2.0-only 提供：
+
+	SPDX-License-Identifier: GPL-2.0-only
+
+完整许可文本见 LICENSES/GPL-2.0。
+
+数据文件本身不属于上述范围，各自沿用上游的许可：
+
+| 数据 | 上游 | 许可 |
+|---|---|---|
+| ip2region_v4.xdb / ip2region_v6.xdb | lionsoul2014/ip2region | Apache-2.0 |
+| qqwry.dat | metowolf/qqwry.dat（纯真库） | 免费使用（Free） |
+| zxipv6wry.db | ip.zxinc.org | 免费使用（Free） |
+| cdn.txt | 4ft35t/cdn（原为 nali 的 cdn.yml） | GPL-2.0-only |
+
+本仓库不重新分发来源不明的数据：五个文件都由 GitHub Actions 在构建时从上游
+抓取，抓取地址与校验口径写在 scripts/fetch.sh 与 scripts/validate.py 里。
+
+构建产物（ipk 与 apk）由 OpenWrt 官方 SDK 容器现场生成，数据只在 CI 里经过，
+不随仓库分发。

@@ -1,0 +1,14 @@
+Package: appdpi-geoip-zxipv6wry
+Version: @VERSION@
+Depends: appdpi
+Architecture: all
+Section: net
+Priority: optional
+Maintainer: SuLingGG
+Installed-Size: @INSTALLED_SIZE@
+Source: https://ip.zxinc.org/
+License: Free
+Description: appdpi 地理库 - ZX IPv6（zxipv6wry）
+ ZX 的 IPv6 地址库，装到 /etc/appdpi/geoip/zxipv6wry.db。
+ 上游只发 7z 包（里面的 ipv6wry.db），本包已解开，装上即用。
+ IPv6 的地理位置主要靠它，查询顺序上默认排在 ip2region_v6 前面。

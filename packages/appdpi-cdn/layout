@@ -1,0 +1,2 @@
+# 打包布局：源文件（相对 dist/appdpi-cdn/）	安装到包内的绝对路径	权限
+cdn.txt	/etc/appdpi/cdn.txt	644

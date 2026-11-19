@@ -1,0 +1,229 @@
+name: 每日数据包
+
+# 每天把五份数据（四个地理库 + CDN 库）重新抓一遍，有变化才出包，发布到
+# Release。五个包名与包内路径都是固定的，装到设备上就是那五个位置。
+#
+# 每个包出两种格式，由两个官方 SDK 容器各产一半：
+#   24.10 分支（opkg）→ .ipk     25.12 分支（apk-tools 3）→ .apk
+# 包定义来自 packages/<包名>/（control.in + layout），由
+# tools/gen_sdk_packages.py 翻译成 SDK 认识的 Makefile，再交给
+# scripts/sdk-build-data.sh 在容器里编译——ipk 不再手工拼 tar，两种格式走
+# 同一份定义，不会出现「ipk 改了、apk 没改」。
+#
+# 为什么每天跑却不是每天出包：各家更新节奏差得很远（实测 qqwry 每周、
+# ip2region 1–3 周、cdn 季度级、zxipv6wry 2022 年后冻结）。每天抓是为了不漏
+# 更新；按 sha256 比对后只在真的变了才发布——否则绝大多数 Release 都只是
+# 「内容一样、版本号不同」，用户每次升级都在写同一份数据。
+on:
+  schedule:
+    # cron 一律 UTC。18:00 UTC = 次日 02:00 北京时间。
+    # 写成 '0 2 * * *' 会变成北京时间上午 10 点跑。
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# 同一时间只允许一个发布在跑，且不取消正在进行的那次：
+# 发布跑到一半被打断，会留下一个资产不全的 Release。
+concurrency:
+  group: daily-data
+  cancel-in-progress: false
+
+jobs:
+  daily:
+    name: 抓取 → 校验 → 打包 → 发布
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # 版本号与 tag 都用北京日期：这个任务就是给北京时间的用户看的，
+      # 用 UTC 日期会让「北京 02:00 出的包」贴上昨天的日子。
+      TZ: Asia/Shanghai
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: 找上一版的 manifest
+        # 「有没有变化」只能跟上一版比，所以先把上一版 Release 里的
+        # manifest.json 取回来当基准。没有上一版（首次运行）就当全部有变化。
+        id: prev
+        run: |
+          set -eu
+          mkdir -p dist
+          tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 60 \
+                  --json tagName --jq \
+                  '[.[] | select(.tagName | startswith("data-"))][0].tagName // ""')
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+          if [ -n "$tag" ] && gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+               --pattern manifest.json --output dist/manifest.prev.json --clobber; then
+            echo "上一版：$tag"
+          else
+            echo "没有可用的上一版 manifest，本次按首次处理"
+            rm -f dist/manifest.prev.json
+          fi
+
+      - name: 抓取五份数据
+        # 单份源抓不到不让整轮失败（镜像/上游抽风是常态）：--allow-partial
+        # 记下失败项继续走，失败的那份沿用上一版的包，Summary 里写明是哪个。
+        # 一份都抓不到时 fetch.sh 自己会失败。
+        #
+        # zxipv6wry 上游只发 7z，解压要 7z 本体（runner 默认没有）。装解压器
+        # 和抓数据本来就是同一件事的两半：这里缺了 7z，那份数据就抓不下来。
+        id: fetch
+        run: |
+          set -eu
+          if ! command -v 7z >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq p7zip-full >/dev/null
+          fi
+          ./scripts/fetch.sh --allow-partial --prev dist/manifest.prev.json
+          echo "changed=$(cut -d= -f2 dist/fetch.changed)" >>"$GITHUB_OUTPUT"
+
+      - name: 校验
+        # 任何一项 FAIL 这里就红了，后面的打包与发布都不会执行。
+        # 坏包绝不发布，也不允许「警告一下继续发」。
+        run: |
+          set -eu
+          python3 scripts/validate.py --dist dist \
+            --prev-manifest dist/manifest.prev.json
+
+      - name: 生成版本号
+        # 版本号要给 manifest 与 Release tag 用，没有变化的那天也要有；
+        # 同日重出时 scripts/version.sh 会从上一版 manifest 里取序号 +1。
+        run: |
+          set -eu
+          version=$(./scripts/version.sh "$(date +%Y.%m.%d)")
+          echo "本次版本：$version"
+
+      - name: 生成 SDK 包定义
+        # 只给本次真有变化的包生成定义：没变的包不重打，版本号不升，
+        # 用户升级时不会被无意义的版本差异骗着下一次。
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          set -eu
+          changed=$(awk -F'\t' 'NR>1 && $1!="package" && $4=="true"{printf "%s,", $1}' \
+                      dist/fetch.tsv | sed 's/,$//')
+          if [ -z "$changed" ]; then
+            echo "没有任何数据变化，却走到了打包步骤" >&2
+            exit 1
+          fi
+          echo "本次打包：$changed"
+          python3 tools/gen_sdk_packages.py --dist dist \
+            --version "$(cat dist/version.txt)" --only "$changed"
+
+      - name: 打 ipk（OpenWrt 24.10 SDK）
+        # 容器里的用户不是 runner，产物目录必须先由宿主建好并放开写权限，
+        # 让容器自己 mkdir 会直接 Permission denied。SDK 镜像只是个壳，SDK 本体
+        # 由 setup.sh 现场下载。
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          set -eu
+          mkdir -p dist/ipk
+          chmod 777 dist/ipk
+          docker run --rm \
+            -e APPDI_DATA_DIR="$GITHUB_WORKSPACE/dist" \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
+            -w /builder \
+            ghcr.io/openwrt/sdk:x86_64-openwrt-24.10 \
+            /bin/sh -c "bash setup.sh && exec /bin/sh '$GITHUB_WORKSPACE/scripts/sdk-build-data.sh' \
+              '$GITHUB_WORKSPACE' '$GITHUB_WORKSPACE/dist/ipk' ipk"
+          sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/dist"
+          ls -lah dist/ipk
+
+      - name: 打 apk（OpenWrt 25.12 SDK）
+        # 同一个脚本、同一份包定义，只是换了 SDK——格式由 SDK 决定。
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          set -eu
+          mkdir -p dist/apk
+          chmod 777 dist/apk
+          docker run --rm \
+            -e APPDI_DATA_DIR="$GITHUB_WORKSPACE/dist" \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
+            -w /builder \
+            ghcr.io/openwrt/sdk:x86_64-openwrt-25.12 \
+            /bin/sh -c "bash setup.sh && exec /bin/sh '$GITHUB_WORKSPACE/scripts/sdk-build-data.sh' \
+              '$GITHUB_WORKSPACE' '$GITHUB_WORKSPACE/dist/apk' apk"
+          sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/dist"
+          ls -lah dist/apk
+
+      - name: 补齐十个资产
+        # 没变的包、抓取失败的包，都从上一版 Release 取回同格式的同一个文件
+        # （核过 sha256 才算数），保证本次 Release 的两种格式各五个资产齐全。
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          set -eu
+          ./scripts/assemble.sh --format ipk \
+            --prev-tag "${{ steps.prev.outputs.tag }}" --repo "$GITHUB_REPOSITORY"
+          ./scripts/assemble.sh --format apk \
+            --prev-tag "${{ steps.prev.outputs.tag }}" --repo "$GITHUB_REPOSITORY"
+
+      - name: 生成 manifest 与 Release 说明
+        id: notes
+        run: |
+          set -eu
+          date_iso=$(date +%F)
+          echo "date=$date_iso" >>"$GITHUB_OUTPUT"
+          if [ "${{ steps.fetch.outputs.changed }}" = "true" ]; then
+            python3 scripts/manifest.py --tag "data-$date_iso"
+          else
+            # 没有变化的那天不发布，manifest 只为让 Summary 有一份可读的对照
+            python3 scripts/manifest.py --tag "data-$date_iso" --allow-incomplete
+          fi
+          echo "version=$(cat dist/version.txt)" >>"$GITHUB_OUTPUT"
+
+      - name: 写运行摘要
+        # 源失败的信息必须显式写在这里：Release 看起来是「十个资产齐全」的，
+        # 只有 Summary 说得出哪一份是沿用的、为什么沿用。
+        if: always()
+        run: |
+          set -eu
+          {
+            echo "## 每日数据包（$(date +%F)，北京时间）"
+            echo ""
+            if [ -f dist/release-notes.md ]; then
+              cat dist/release-notes.md
+            else
+              echo "管线在生成说明之前就失败了，见上方步骤日志。"
+            fi
+            failed=$(awk -F'\t' 'NR>1 && $3!="ok"{print $1"（"$12"）"}' \
+                       dist/fetch.tsv 2>/dev/null || true)
+            if [ -n "$failed" ]; then
+              echo ""
+              echo "> [!WARNING]"
+              echo "> 以下数据本次抓取失败，资产沿用上一版："
+              printf '%s\n' "$failed" | sed 's/^/> - /'
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: 清理 30 天前的 Release
+        run: |
+          set -eu
+          ./scripts/prune.sh --days 30 --repo "$GITHUB_REPOSITORY"
+
+      - name: 同日重跑时先删掉今天的旧 Release
+        # 同一天手动重跑（比如补跑一次失败的源）会撞 tag。先删再建，
+        # 避免「资产同名」这种只能靠 action 内部行为决定结果的情况；
+        # 删的只是今天这一个，历史版本不受影响。
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          set -eu
+          tag="data-$(date +%F)"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "今天的 Release $tag 已存在，同日重跑：删掉旧的再建"
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          fi
+
+      - name: 发布 Release
+        if: steps.fetch.outputs.changed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: data-${{ steps.notes.outputs.date }}
+          name: 数据 ${{ steps.notes.outputs.date }}（${{ steps.notes.outputs.version }}）
+          body_path: dist/release-notes.md
+          files: |
+            dist/ipk/appdpi-*.ipk
+            dist/apk/appdpi-*.apk
+            dist/manifest.json
+          fail_on_unmatched_files: true

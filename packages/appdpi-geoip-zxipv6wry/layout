@@ -1,0 +1,2 @@
+# 打包布局：源文件（相对 dist/appdpi-geoip-zxipv6wry/）	安装到包内的绝对路径	权限
+zxipv6wry.db	/etc/appdpi/geoip/zxipv6wry.db	644

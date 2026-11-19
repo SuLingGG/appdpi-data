@@ -1,0 +1,14 @@
+Package: appdpi-geoip-qqwry
+Version: @VERSION@
+Depends: appdpi
+Architecture: all
+Section: net
+Priority: optional
+Maintainer: SuLingGG
+Installed-Size: @INSTALLED_SIZE@
+Source: https://github.com/metowolf/qqwry.dat
+License: Free
+Description: appdpi 地理库 - 纯真 qqwry
+ 纯真 IP 库，装到 /etc/appdpi/geoip/qqwry.dat。国内地址比 ip2region 细，
+ 装了它之后地理查询默认以它为准（文本覆盖表除外）。
+ 数据随本仓库的每日构建更新（版本号即数据日期）。

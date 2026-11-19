@@ -1,0 +1,2 @@
+# 打包布局：源文件（相对 dist/appdpi-geoip-ip2region-v6/）	安装到包内的绝对路径	权限
+ip2region_v6.xdb	/etc/appdpi/geoip/ip2region_v6.xdb	644

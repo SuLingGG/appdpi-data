@@ -1,0 +1,15 @@
+# 下载下来的数据、打好的包、管线中间清单：全部由脚本重建，不入库
+dist/
+*.ipk
+*.apk
+*.7z
+
+# Python
+__pycache__/
+*.pyc
+
+# 编辑器 / 系统
+*.swp
+*~
+.DS_Store
+.cache/
