@@ -114,7 +114,13 @@ def makefile(pkg: str, ctrl: dict[str, str], layout: list[tuple[str, str, str]],
             install.append(f"\tchmod {mode} $(1){dest}")
 
     first_src = Path(layout[0][0]).name
-    desc_text = "\n".join(" " + l for l in body) if body else " " + title
+    # 描述首行是摘要（control.in 的 Description 第一行），后续行缩进一格。
+    # 以前只把 body 写进去，摘要行被当成 TITLE 用掉后就从描述里消失了——
+    # 装完后 control 里只剩续行，LuCI 与 opkg 看到的描述是半句话
+    # （docs/p13-panel-rework.md 13.4.6）。
+    desc_text = title
+    if body:
+        desc_text += "\n" + "\n".join(" " + l for l in body)
 
     return f"""\
 # 由 tools/gen_sdk_packages.py 从 packages/{pkg}/ 下的 control.in 与 layout 生成，勿手改。
