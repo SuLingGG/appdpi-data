@@ -10,6 +10,9 @@
 # ipk 与 apk 用的是同一个版本号：两种格式同源于同一份数据，版本分开只会多一个
 # 对不上的维度。
 #
+# 插件仓库（panabit-appdpi）的 openwrt/data-version.mk 是同一条规则的另一份实现，
+# 它那边还要多算特征库：日期取上游 source_version 的日期段、序号取时刻段。
+#
 # 用法：scripts/version.sh [YYYY.MM.DD]
 # 环境变量：DIST（默认 <repo>/dist）、PREV_MANIFEST（默认 <dist>/manifest.prev.json）
 #
