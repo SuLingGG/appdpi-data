@@ -9,10 +9,6 @@ SPDX-License-Identifier: GPL-2.0-only
       link: 官网
 输出：每行 `s<TAB>厂商名<TAB>后缀` 或 `r<TAB>厂商名<TAB>正则`。
 
-输入取 4ft35t/cdn 的 cdn.yml，产出本仓库 appdpi-cdn 包里的 cdn.txt。
-转换逻辑要跟引擎读 cdn.txt 的判据对齐（r 行按正则、s 行按后缀），改动
-两边要一起改。
-
 为什么用自定义格式而不是留 YAML：引擎是 C，不想为 325 条数据拖一个 YAML
 解析器；转换放在构建侧（脚本 + 转换产物入库），运行时只读定长行。
 """
